@@ -1,0 +1,182 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Oct 25 11:43:17 2018
+
+@author: Bram / Ian Arbouw
+"""
+import numpy as np
+import pyqtgraph as pg
+import pyqtgraph.opengl as gl
+from pyqtgraph.Qt import QtCore, QtGui
+import matplotlib
+
+matplotlib.lines.Line2D
+try:
+    w.close()
+    w=gl.GLViewWidget()
+except NameError:
+    app = QtGui.QApplication([])
+    w = gl.GLViewWidget()
+size = []
+
+
+def clear_data(coordinates, plotsize, voxelsize, minimum_ammount=1):
+    """
+    Voxel based data clearing for pointclouds
+        :param coordinates: pointcloud that is going to be voxelized
+        :param plotsize: size of the coordinate system a list of 6 items.\n
+            x minimum: plotsize[0]\n
+            x maximum: plotsize[1]\n
+            y minimum: plotsize[2]\n
+            y maximum: plotsize[3]\n
+            z minimum: plotsize[4]\n
+            z maximum: plotsize[5]
+        :param voxelsize: size of the voxel in mm
+        :param minimum_ammount=1: minimum amount of points to consider a voxel
+            point.
+    Output:
+        list of the voxel locations
+    .. note::
+
+        this product is still in development
+    """
+    areashape = (int((plotsize[1] - plotsize[0]) / voxelsize)+1,
+                 int((plotsize[3] - plotsize[2]) / voxelsize)+1,
+                 int((plotsize[5] - plotsize[4]) / voxelsize)+1)
+    mode = 0
+
+    if (minimum_ammount == 1):
+        voxels = np.full(areashape,
+                         True,
+                         dtype=bool)
+        mode = 0
+    elif (minimum_ammount >= 2):
+        voxels = np.full(areashape,
+                         0,
+                         dtype=int)
+        mode = 1
+    else:
+        raise ValueError('mimimum_ammount cant be lower then 1')
+
+    newcoordinates = []
+
+    for coor in coordinates:
+        x = int((coor[0] - plotsize[0]) / voxelsize)
+        y = int((coor[1] - plotsize[2]) / voxelsize)
+        z = int((coor[2] - plotsize[4]) / voxelsize)
+        
+        if(mode == 0):
+            if (voxels[x][y][z]):
+                voxels[x][y][z] = False
+                newcoordinates.append([x, y, z])
+
+        if(mode == 1):
+            if (voxels[x][y][z] >= 0):
+                
+                voxels[x][y][z] += 1
+                if (voxels[x][y][z] >= minimum_ammount):
+                    newcoordinates.append([x, y, z])
+                    voxels[x][y][z] = -1
+    return newcoordinates
+
+
+def angle_to_coordinates(theta_distance_line, x_size,
+                         x_min=0.0, x_max=0.0,
+                         x_min_check=True, x_max_check=True,
+                         y_min=0.0, y_max=0.0,
+                         y_min_check=True, y_max_check=True,
+                         z_min=0.0, z_max=0.0,
+                         z_min_check=True, z_max_check=True):
+    coordinates = []
+    zmax = 75.0
+    zmin = 0.0
+    ymax = -25.0
+    ymin = -175.0
+    xmax = 0.0
+    xmin = 0.0
+
+    for i in range(0, theta_distance_line.shape[0]):
+        z = (theta_distance_line[i][1] *
+             np.cos(np.radians(theta_distance_line[i][0])) / 10)
+        y = (theta_distance_line[i][1] *
+             np.sin(np.radians(theta_distance_line[i][0])) / 10)
+        x = theta_distance_line[i][2] * x_size
+        if (y < ymax and z < zmax and y > ymin):
+            if (x > xmax):
+                xmax = x
+            if (x < xmin):
+                xmin = x
+            if (z < zmin):
+                zmin = z
+
+            coordinates.append([x, y, z])
+
+    Size = [xmin, xmax,
+            ymin, ymax,
+            zmin, zmax]
+    return coordinates, Size
+
+
+filename = ["scandata201810291313"
+            ]
+for i in range(0, len(filename)):
+    fileload = str(filename[i] + ".txt")
+    filesave = str(filename[i] + ".csv")
+    filesavecleaned = str(filename[i] + "_clean.csv")
+    lidardata = open(fileload, "r").readlines()
+
+    s = (len(lidardata), 3)
+    theta_distance_line = np.zeros(s)
+    regel = 0.0
+
+    for i in range(0, len(lidardata)):
+        words = lidardata[i].split()
+        # print (words)
+        if (len(words) != 0):
+            try:
+                if (words[0] == 'z:'):
+                    regel = float(words[1])
+                else:
+                    newline = (float(words[1]), float(words[3]), -regel)
+                    theta_distance_line[i] = newline
+            except IndexError:
+                print("index error")
+        # print("{:.4f}%".format(100*(float(i)/float(len(lidardata)))/3))
+
+    # print(theta_distance_line)
+    X_size = 48.0/float(regel)
+    lidarsavecoor = open(filesave, "w")
+    for coor in theta_distance_line:
+        lidarsavecoor.write("{},{},{}\n".format(
+                coor[0],
+                coor[1],
+                coor[2]
+                ))
+
+    lidarsavecoor.close()
+    coordinates, size = angle_to_coordinates(theta_distance_line, X_size)
+    lidarsavecoor = open(filesave, "w")
+    for coor in coordinates:
+        lidarsavecoor.write("{},{},{}\n".format(
+                coor[0],
+                coor[1],
+                coor[2]
+                ))
+
+    lidarsavecoor.close()
+    voxel_size = X_size * 8
+    point_ammound_per_voxel = 1
+    cleanedupcoordinates = clear_data(coordinates,
+                                      size, 
+                                      voxel_size,
+                                      point_ammound_per_voxel)
+
+    lidarsavecoor = open(filesavecleaned, "w")
+
+    for coor in cleanedupcoordinates:
+        lidarsavecoor.write("{},{},{}\n".format(
+                coor[0],
+                coor[1],
+                coor[2]
+                ))
+    lidarsavecoor.close()
